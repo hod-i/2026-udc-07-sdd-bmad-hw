@@ -529,11 +529,54 @@ describe("priceOrder", () => {
     expect(() => priceOrder(order({ items: [null as unknown as LineItem] }), [], NOW)).toThrow(TypeError);
     expect(() => priceOrder(order({ coupons: [123 as unknown as string] }), [], NOW)).toThrow(TypeError);
 
+    // Large finite values: `Number.isInteger` accepts MAX_VALUE, so without the
+    // safe-integer bound these reach the arithmetic and produce Infinity/NaN.
+    // The message must name the FIELD — quantity 0 keeps the product safe (0),
+    // so only the per-field bound can reject the price here.
+    expect(() =>
+      priceOrder(order({ items: [item({ unitPriceKopecks: Number.MAX_VALUE, quantity: 0 })] }), [], NOW),
+    ).toThrow(/unitPriceKopecks must be a non-negative safe integer/);
+    expect(() =>
+      priceOrder(order({ items: [item({ quantity: Number.MAX_VALUE, unitPriceKopecks: 0 })] }), [], NOW),
+    ).toThrow(/quantity must be a non-negative safe integer/);
+
+    // Each FIELD safe on its own, but the product is not: 2^40 × 2^40 passes
+    // both per-field checks yet overflows. The result stays finite, so nothing
+    // downstream reports an error — shipping silently loses kopecks and the §5
+    // identity between the fields stops holding.
+    expect(() =>
+      priceOrder(
+        order({ items: [item({ unitPriceKopecks: 2 ** 40, quantity: 2 ** 40 })] }),
+        [],
+        NOW,
+      ),
+    ).toThrow(/total .* exceeds the safe integer range/);
+
+    // Each LINE safe on its own, but the running subtotal overflows across
+    // lines — the third layer, which neither per-field nor per-line catches.
+    expect(() =>
+      priceOrder(
+        order({
+          items: [
+            item({ unitPriceKopecks: Number.MAX_SAFE_INTEGER, quantity: 1 }),
+            item({ unitPriceKopecks: Number.MAX_SAFE_INTEGER, quantity: 1 }),
+          ],
+        }),
+        [],
+        NOW,
+      ),
+    ).toThrow(/subtotal exceeds the safe integer range/);
+
     // The boundary: a computable order is untouched. Zero is a real price and a
     // real quantity, and an empty cart stays valid per D-17.
     expect(price(order({ items: [item({ unitPriceKopecks: 0 })] })).totalKopecks).toBe(4_900);
     expect(price(order({ items: [item({ quantity: 0 })] })).subtotalKopecks).toBe(0);
     expect(price(order({ items: [] })).totalKopecks).toBe(0);
+
+    // A large but genuinely safe amount still prices normally — the bound
+    // rejects impossible money, not merely expensive orders.
+    expect(price(order({ items: [item({ unitPriceKopecks: 1_000_000_000_00 })] })).subtotalKopecks)
+      .toBe(1_000_000_000_00);
   });
 
   it("AC-1..31: the calculation is pure — inputs are not mutated, no clock is read", () => {

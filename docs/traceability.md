@@ -6,7 +6,7 @@
 **Мутаційна перевірка:** `app/scripts/mutation-check.mjs`
 
 Перевірено: `cd app && npm test` — 40 зелених (8 засіяних + 32 за критеріями),
-`npm run typecheck` — без помилок, `npm run mutation-check` — 14 із 14 мутацій
+`npm run typecheck` — без помилок, `npm run mutation-check` — 16 із 16 мутацій
 спіймано.
 
 ## Таблиця
@@ -43,7 +43,7 @@
 | AC-28 | Зіпсований поріг невалідний, відсутній — ні (D-20) | `discounts.ts:isValidMinSubtotal` | `AC-28: a corrupt minimum threshold is invalid; an absent one is not` | ✅ |
 | AC-29 | Непридатний `now` — `invalid`, не вічний купон; пріоритет причин збережено (D-23) | `discounts.ts:priceOrder` → `nowIsUsable`, крок (д) | `AC-29: an unusable `now` rejects coupons rather than making them eternal` | ✅ |
 | AC-30 | Невідомий `kind` — `invalid`, а не мовчазний `fixed` (D-24) | `discounts.ts:isSupportedKind`, крок (г) | `AC-30: an unsupported kind is invalid, not silently treated as fixed` | ✅ |
-| AC-31 | Незліченне замовлення — `TypeError`, а не отруєна розбивка (D-22) | `discounts.ts:assertComputableOrder`, крок 0 | `AC-31: a corrupt order throws rather than returning a poisoned breakdown` | ✅ |
+| AC-31 | Незліченне замовлення й переповнення грошової арифметики — `TypeError`, а не отруєна розбивка (D-22) | `discounts.ts:assertComputableOrder`, крок 0: `Number.isSafeInteger` на полі, добутку й накопиченій сумі | `AC-31: a corrupt order throws rather than returning a poisoned breakdown` | ✅ |
 
 **Інваріанти контракту** (§5 специфікації) перевіряються не окремим рядком, а
 хелпером `expectInvariants` на результаті **кожного** критерію, що повертає
@@ -115,7 +115,7 @@ no clock is read`. Він перевіряє не окремий критері�
 `percent`, а той відсікався пізнішою перевіркою діапазону — тобто тест проходив
 із хибної причини, хоча саме `NaN` був приводом для D-16. Обидва тести
 підсилено в межах їхніх критеріїв; код не змінювався — він був правильний
-із самого початку. Зараз ловляться всі 13 мутацій.
+із самого початку. Зараз ловляться всі 16 мутацій.
 
 Скрипт закомічено навмисно, а не лишено разовим прогоном: він і є той артефакт,
 який відрізняє «тести зелені» від «поведінку перевірено». Кожна мутація — це

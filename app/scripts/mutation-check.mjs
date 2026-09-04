@@ -104,6 +104,18 @@ const MUTATIONS = [
     to: "",
   },
   {
+    decision: "D-22 (overflow)",
+    what: "bound money by isInteger, which accepts MAX_VALUE and overflows to Infinity",
+    from: "      if (!Number.isSafeInteger(value) || value < 0) {",
+    to: "      if (!Number.isInteger(value) || value < 0) {",
+  },
+  {
+    decision: "D-22 (line product)",
+    what: "skip the multiplication check, so safe factors still overflow the subtotal",
+    from: "    if (!Number.isSafeInteger(lineTotal)) {",
+    to: "    if (false) {",
+  },
+  {
     decision: "D-24",
     what: "trust `kind`, so an unknown kind silently pays out as a fixed coupon",
     from: '  return coupon.kind === "percent" || coupon.kind === "fixed";',

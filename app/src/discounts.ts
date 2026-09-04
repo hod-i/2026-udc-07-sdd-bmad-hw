@@ -149,6 +149,7 @@ function assertComputableOrder(order: Order): void {
   if (!Array.isArray(order?.items)) throw new TypeError("priceOrder: order.items must be an array");
   if (!Array.isArray(order.coupons)) throw new TypeError("priceOrder: order.coupons must be an array");
 
+  let runningSubtotal = 0;
   order.items.forEach((item, index) => {
     if (typeof item !== "object" || item === null) {
       throw new TypeError(`priceOrder: order.items[${index}] must be an object`);
@@ -156,13 +157,35 @@ function assertComputableOrder(order: Order): void {
     // Whole non-negative kopecks, matching the money contract in types.ts. The
     // allow-list also rejects NaN, Infinity and fractions such as 10.5, which a
     // `< 0` deny-list would let through into the subtotal (same reason as D-16).
+    //
+    // `isSafeInteger`, not `isInteger`: the latter accepts Number.MAX_VALUE and
+    // every other integral float above 2^53, where arithmetic silently stops
+    // being exact. Such a value is not a real kopeck amount — no order costs
+    // 9·10^307 — so it is a corrupt field, judged here rather than downstream.
     for (const field of ["unitPriceKopecks", "quantity"] as const) {
       const value = item[field];
-      if (!Number.isInteger(value) || value < 0) {
+      if (!Number.isSafeInteger(value) || value < 0) {
         throw new TypeError(
-          `priceOrder: order.items[${index}].${field} must be a non-negative integer, got ${String(value)}`,
+          `priceOrder: order.items[${index}].${field} must be a non-negative safe integer, got ${String(value)}`,
         );
       }
+    }
+    // Individually safe values can still overflow once multiplied and summed,
+    // and the loss is silent: past 2^53 addition starts dropping units, so
+    // `subtotal + shipping` can come back less than `shipping` was worth and
+    // the §5 identity between the fields stops holding. Checked here because
+    // `pricing.ts` is a fixed contract that cannot carry the guard itself.
+    const lineTotal = item.unitPriceKopecks * item.quantity;
+    if (!Number.isSafeInteger(lineTotal)) {
+      throw new TypeError(
+        `priceOrder: order.items[${index}] total ${item.unitPriceKopecks}×${item.quantity} exceeds the safe integer range`,
+      );
+    }
+    runningSubtotal += lineTotal;
+    if (!Number.isSafeInteger(runningSubtotal)) {
+      throw new TypeError(
+        `priceOrder: order subtotal exceeds the safe integer range at order.items[${index}]`,
+      );
     }
   });
 
