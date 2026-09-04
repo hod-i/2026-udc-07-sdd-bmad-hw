@@ -573,10 +573,37 @@ describe("priceOrder", () => {
     expect(price(order({ items: [item({ quantity: 0 })] })).subtotalKopecks).toBe(0);
     expect(price(order({ items: [] })).totalKopecks).toBe(0);
 
+    // A subtotal that is safe on its own but not once the arithmetic downstream
+    // touches it. MAX_SAFE_INTEGER passes every per-item check, yet adding
+    // 4 900 kopecks of shipping moves the total by 4 901 — the §5 identity
+    // holds only because both sides are equally wrong.
+    expect(() => priceOrder(order({ items: [item({ unitPriceKopecks: Number.MAX_SAFE_INTEGER })] }), [], NOW))
+      .toThrow(/subtotal exceeds the safe integer range/);
+
+    // The same subtotal with a tier: `subtotal × 10` overflows before the ÷100,
+    // so the discount lands a kopeck below the exact answer.
+    expect(() =>
+      priceOrder(
+        order({ items: [item({ unitPriceKopecks: Number.MAX_SAFE_INTEGER })], customerTier: "gold" }),
+        [],
+        NOW,
+      ),
+    ).toThrow(TypeError);
+
     // A large but genuinely safe amount still prices normally — the bound
     // rejects impossible money, not merely expensive orders.
     expect(price(order({ items: [item({ unitPriceKopecks: 1_000_000_000_00 })] })).subtotalKopecks)
       .toBe(1_000_000_000_00);
+
+    // Right at the bound the arithmetic must still be exact, shipping included.
+    const maxSubtotal = Math.floor(Number.MAX_SAFE_INTEGER / 100);
+    const atBound = price(order({ items: [item({ unitPriceKopecks: maxSubtotal })], customerTier: "gold" }));
+    expect(Number.isSafeInteger(atBound.totalKopecks)).toBe(true);
+    expect(atBound.totalKopecks).toBe(
+      atBound.subtotalKopecks - atBound.tierDiscountKopecks + atBound.shippingKopecks,
+    );
+    // The tier discount is exact, not a kopeck adrift.
+    expect(atBound.tierDiscountKopecks).toBe(Number(BigInt(maxSubtotal) * 10n / 100n));
   });
 
   it("AC-1..31: the calculation is pure — inputs are not mutated, no clock is read", () => {

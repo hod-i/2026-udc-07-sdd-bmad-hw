@@ -110,6 +110,12 @@ const MUTATIONS = [
     to: "      if (!Number.isInteger(value) || value < 0) {",
   },
   {
+    decision: "D-22 (downstream headroom)",
+    what: "bound the subtotal at MAX_SAFE_INTEGER, leaving no room for shipping or the percent multiply",
+    from: "    if (runningSubtotal > MAX_SUBTOTAL_KOPECKS) {",
+    to: "    if (!Number.isSafeInteger(runningSubtotal)) {",
+  },
+  {
     decision: "D-22 (line product)",
     what: "skip the multiplication check, so safe factors still overflow the subtotal",
     from: "    if (!Number.isSafeInteger(lineTotal)) {",

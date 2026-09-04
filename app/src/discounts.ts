@@ -129,6 +129,30 @@ function isValidMinSubtotal(coupon: Coupon): boolean {
 }
 
 /**
+ * The largest subtotal this engine will price (D-22).
+ *
+ * A merely safe subtotal is not enough: the arithmetic downstream both adds to
+ * it and multiplies it, and either can leave the exact range while staying
+ * finite — silently, which is the dangerous part.
+ *
+ *   - `subtotal + shipping` must stay exact, or the §5 identity between the
+ *     fields breaks: at MAX_SAFE_INTEGER, adding 4 900 kopecks of shipping
+ *     moves the total by 4 901.
+ *   - `subtotal × percent` (tier, and the coupon steps) happens BEFORE the
+ *     ÷100, so the product must stay exact too. Past 2^53 it does not, and the
+ *     floor lands a kopeck low — verified: a subtotal of 8 304 332 205 561 060
+ *     at Gold discounts one kopeck less than the exact answer.
+ *
+ * Dividing the safe range by the largest multiplier (100, the percent divisor)
+ * covers both: the product of the largest allowed subtotal and any percentage
+ * up to 100 stays inside 2^53, and so does any shipping fee added to it.
+ *
+ * ≈ 900 трильйонів гривень — far above any real order, so this bounds corrupt
+ * data, not commerce.
+ */
+const MAX_SUBTOTAL_KOPECKS = Math.floor(Number.MAX_SAFE_INTEGER / 100);
+
+/**
  * The one place this engine throws (D-22).
  *
  * Every other kind of bad input leaves the order computable, so it becomes data:
@@ -171,10 +195,10 @@ function assertComputableOrder(order: Order): void {
       }
     }
     // Individually safe values can still overflow once multiplied and summed,
-    // and the loss is silent: past 2^53 addition starts dropping units, so
-    // `subtotal + shipping` can come back less than `shipping` was worth and
-    // the §5 identity between the fields stops holding. Checked here because
-    // `pricing.ts` is a fixed contract that cannot carry the guard itself.
+    // and the loss is silent. Checked here because `pricing.ts` is a fixed
+    // contract that cannot carry the guard itself; the accumulated total is
+    // then held to MAX_SUBTOTAL_KOPECKS, which also keeps the later `+ shipping`
+    // and `× percent` steps exact.
     const lineTotal = item.unitPriceKopecks * item.quantity;
     if (!Number.isSafeInteger(lineTotal)) {
       throw new TypeError(
@@ -182,7 +206,7 @@ function assertComputableOrder(order: Order): void {
       );
     }
     runningSubtotal += lineTotal;
-    if (!Number.isSafeInteger(runningSubtotal)) {
+    if (runningSubtotal > MAX_SUBTOTAL_KOPECKS) {
       throw new TypeError(
         `priceOrder: order subtotal exceeds the safe integer range at order.items[${index}]`,
       );
