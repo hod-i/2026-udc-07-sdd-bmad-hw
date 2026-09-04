@@ -6,7 +6,8 @@
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc -p tsconfig.json"
+    "typecheck": "tsc -p tsconfig.json",
+    "mutation-check": "node scripts/mutation-check.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

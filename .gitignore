@@ -40,3 +40,5 @@ nul
 # deliberately scope permissions there.
 .claude/*
 !.claude/settings.json
+# Custom agent definitions are project deliverables, not local state.
+!.claude/agents/
