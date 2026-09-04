@@ -320,6 +320,33 @@ describe("priceOrder", () => {
     const result = price(o, [coupon({ expiresAt: "31/12/2026" })]);
     expect(result.rejectedCoupons).toEqual([{ code: "SAVE10", reason: "invalid" }]);
     expect(result.couponDiscountKopecks).toBe(0);
+
+    // A date that passes the shape check but does not exist on the calendar.
+    // `Date.parse` rolls it to 2026-03-03 — a past instant relative to NOW, so
+    // without the calendar check this would read `expired`; a future one would
+    // apply. Both are wrong: the record is corrupt, hence `invalid`.
+    const rolled = price(o, [coupon({ expiresAt: "2026-02-31" })]);
+    expect(rolled.rejectedCoupons).toEqual([{ code: "SAVE10", reason: "invalid" }]);
+    expect(rolled.couponDiscountKopecks).toBe(0);
+
+    // The same overflow in the date-time shape, past the offset check.
+    const rolledWithOffset = price(o, [coupon({ expiresAt: "2026-02-31T00:00:00Z" })]);
+    expect(rolledWithOffset.rejectedCoupons).toEqual([{ code: "SAVE10", reason: "invalid" }]);
+
+    // A future rolled date would otherwise be applied outright.
+    const rolledFuture = price(o, [coupon({ expiresAt: "2027-04-31" })]);
+    expect(rolledFuture.rejectedCoupons).toEqual([{ code: "SAVE10", reason: "invalid" }]);
+
+    // 2026 is not a leap year, so the 29th of February does not exist either —
+    // but it does in 2028, and that date must stay valid.
+    expect(price(o, [coupon({ expiresAt: "2026-02-29" })]).rejectedCoupons)
+      .toEqual([{ code: "SAVE10", reason: "invalid" }]);
+    expect(price(o, [coupon({ expiresAt: "2028-02-29" })]).appliedCoupons).toEqual(["SAVE10"]);
+
+    // The check rejects impossible days, not ordinary month ends: the last day
+    // of a 30-day month and of a 31-day month both remain valid.
+    expect(price(o, [coupon({ expiresAt: "2027-04-30" })]).appliedCoupons).toEqual(["SAVE10"]);
+    expect(price(o, [coupon({ expiresAt: "2027-12-31" })]).appliedCoupons).toEqual(["SAVE10"]);
   });
 
   it("AC-25: a date-time without an offset is invalid; with one, or date-only, it is not", () => {
@@ -370,6 +397,25 @@ describe("priceOrder", () => {
     // Neither record is chosen — the ambiguity itself is the defect.
     expect(collision.rejectedCoupons).toEqual([{ code: "SAVE10", reason: "invalid" }]);
     expect(collision.couponDiscountKopecks).toBe(0);
+
+    // A row whose `code` is not a string is skipped during lookup rather than
+    // crashing it. `Coupon` promises a string, but the catalog is external
+    // data (§2) — the type is a claim, not a guarantee.
+    const malformed = [null, undefined, { ...coupon(), code: undefined }, { ...coupon(), code: 123 }];
+    for (const bad of malformed) {
+      const result = price(thousandUah({ coupons: ["SAVE10"] }), [bad as unknown as Coupon]);
+      // Nothing matched, so the entered code is simply unknown (D-10).
+      expect(result.rejectedCoupons).toEqual([{ code: "SAVE10", reason: "unknown" }]);
+    }
+
+    // The decisive case: one corrupt row must not cost the customer a valid
+    // coupon sitting beside it in the same catalog.
+    const survives = price(thousandUah({ coupons: ["SAVE10"] }), [
+      null as unknown as Coupon,
+      coupon(),
+    ]);
+    expect(survives.appliedCoupons).toEqual(["SAVE10"]);
+    expect(survives.couponDiscountKopecks).toBe(10_000);
   });
 
   it("AC-28: a corrupt minimum threshold is invalid; an absent one is not", () => {
@@ -396,7 +442,101 @@ describe("priceOrder", () => {
     expect(price(o, [coupon({ minSubtotalKopecks: 0 })]).appliedCoupons).toEqual(["SAVE10"]);
   });
 
-  it("AC-1..28: the calculation is pure — inputs are not mutated, no clock is read", () => {
+  it("AC-29: an unusable `now` rejects coupons rather than making them eternal", () => {
+    const INVALID_NOW = new Date("nonsense");
+    const o = thousandUah({ coupons: ["SAVE10"] });
+
+    // Expired since 2020: NaN >= expiresAtMs is false, so without the check on
+    // `now` this coupon would apply — the D-20 trap from the clock's side.
+    const result = price(o, [coupon({ expiresAt: "2020-01-01" })], INVALID_NOW);
+    expect(result.rejectedCoupons).toEqual([{ code: "SAVE10", reason: "invalid" }]);
+    expect(result.couponDiscountKopecks).toBe(0);
+
+    // A coupon valid at every instant is rejected too: the defect is that
+    // expiry cannot be judged at all, not that this record is corrupt.
+    expect(price(o, [coupon()], INVALID_NOW).rejectedCoupons).toEqual([
+      { code: "SAVE10", reason: "invalid" },
+    ]);
+
+    // The calculation is not interrupted: everything independent of `now`
+    // keeps the values it has under a valid clock. (`price` also asserts the
+    // §5 invariants on this result, so no field goes NaN.)
+    const sane = price(thousandUah({ customerTier: "gold" }), []);
+    const withBadClock = price(thousandUah({ customerTier: "gold", coupons: ["SAVE10"] }), [coupon()], INVALID_NOW);
+    expect(withBadClock.subtotalKopecks).toBe(sane.subtotalKopecks);
+    expect(withBadClock.tierDiscountKopecks).toBe(sane.tierDiscountKopecks);
+    expect(withBadClock.shippingKopecks).toBe(sane.shippingKopecks);
+    expect(withBadClock.totalKopecks).toBe(sane.totalKopecks);
+
+    // Priority is unchanged: reasons that do not depend on `now` still win.
+    // Were the check placed before (б)…(г), each of these would read "invalid".
+    expect(price(thousandUah({ coupons: ["NOSUCHCODE"] }), [coupon()], INVALID_NOW).rejectedCoupons)
+      .toEqual([{ code: "NOSUCHCODE", reason: "unknown" }]);
+    expect(price(thousandUah({ coupons: ["SAVE10", "SAVE10"] }), [coupon()], INVALID_NOW).rejectedCoupons)
+      .toEqual([
+        { code: "SAVE10", reason: "invalid" },
+        { code: "SAVE10", reason: "duplicate" },
+      ]);
+  });
+
+  it("AC-30: an unsupported kind is invalid, not silently treated as fixed", () => {
+    const o = thousandUah({ coupons: ["SAVE10"] });
+
+    // The sharp case: the discount step is a `kind === "percent" ? … : …`
+    // ternary, so an unknown kind falls to the fixed branch and pays out
+    // 100 грн off as though it were a legitimate fixed coupon.
+    const bogus = price(o, [coupon({ kind: "bogus" as unknown as Coupon["kind"], value: 10_000 })]);
+    expect(bogus.rejectedCoupons).toEqual([{ code: "SAVE10", reason: "invalid" }]);
+    expect(bogus.couponDiscountKopecks).toBe(0);
+    expect(bogus.totalKopecks).toBe(104_900);
+
+    // Absent and null kinds are corrupt for the same reason — an allow-list
+    // catches them, a `kind !== "percent"` negation would not.
+    for (const kind of [undefined, null]) {
+      const result = price(o, [coupon({ kind: kind as unknown as Coupon["kind"] })]);
+      expect(result.rejectedCoupons).toEqual([{ code: "SAVE10", reason: "invalid" }]);
+      expect(result.couponDiscountKopecks).toBe(0);
+    }
+
+    // Both real kinds are untouched: this rejects unknown kinds, nothing else.
+    expect(price(o, [coupon({ kind: "percent", value: 10 })]).couponDiscountKopecks).toBe(10_000);
+    expect(price(o, [coupon({ kind: "fixed", value: 10_000 })]).couponDiscountKopecks).toBe(10_000);
+  });
+
+  it("AC-31: a corrupt order throws rather than returning a poisoned breakdown", () => {
+    // Each of these reached `subtotalKopecks` before D-22 and produced either a
+    // NaN total or a negative field — the §5 invariant broken six ways.
+    const corruptItems: Partial<LineItem>[] = [
+      { unitPriceKopecks: Number.NaN },
+      { unitPriceKopecks: Number.POSITIVE_INFINITY },
+      { unitPriceKopecks: -25_000 },
+      { unitPriceKopecks: 10.5 },
+      { quantity: Number.NaN },
+      { quantity: -3 },
+      { quantity: 1.5 },
+    ];
+    for (const over of corruptItems) {
+      expect(() => priceOrder(order({ items: [item(over)] }), [], NOW)).toThrow(TypeError);
+    }
+
+    // The message names the offending field, so a log line is enough to debug.
+    expect(() => priceOrder(order({ items: [item({ unitPriceKopecks: Number.NaN })] }), [], NOW))
+      .toThrow(/unitPriceKopecks/);
+
+    // Shape failures, not just numeric ones.
+    expect(() => priceOrder(order({ items: null as unknown as LineItem[] }), [], NOW)).toThrow(TypeError);
+    expect(() => priceOrder(order({ coupons: null as unknown as string[] }), [], NOW)).toThrow(TypeError);
+    expect(() => priceOrder(order({ items: [null as unknown as LineItem] }), [], NOW)).toThrow(TypeError);
+    expect(() => priceOrder(order({ coupons: [123 as unknown as string] }), [], NOW)).toThrow(TypeError);
+
+    // The boundary: a computable order is untouched. Zero is a real price and a
+    // real quantity, and an empty cart stays valid per D-17.
+    expect(price(order({ items: [item({ unitPriceKopecks: 0 })] })).totalKopecks).toBe(4_900);
+    expect(price(order({ items: [item({ quantity: 0 })] })).subtotalKopecks).toBe(0);
+    expect(price(order({ items: [] })).totalKopecks).toBe(0);
+  });
+
+  it("AC-1..31: the calculation is pure — inputs are not mutated, no clock is read", () => {
     const o = thousandUah({ customerTier: "gold", coupons: ["SAVE15", "NOSUCHCODE"] });
     const catalog = [coupon({ code: "SAVE15", value: 15 })];
     const orderBefore = structuredClone(o);

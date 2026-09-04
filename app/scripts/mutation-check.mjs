@@ -80,10 +80,40 @@ const MUTATIONS = [
     to: "",
   },
   {
+    decision: "D-20 (calendar)",
+    what: "trust the shape check alone, so 2026-02-31 rolls forward to a real instant",
+    from: "if (!isRealCalendarDate(expiresAt)) return null;",
+    to: "",
+  },
+  {
     decision: "D-20 (minSubtotal)",
     what: "skip threshold validation, so a negative threshold always passes",
     from: "return Number.isInteger(coupon.minSubtotalKopecks) && coupon.minSubtotalKopecks >= 0;",
     to: "return true;",
+  },
+  {
+    decision: "D-23",
+    what: "trust `now`, so an Invalid Date makes every expired coupon eternal",
+    from: "if (!nowIsUsable) {",
+    to: "if (false) {",
+  },
+  {
+    decision: "D-22",
+    what: "trust the order, so a NaN price poisons the whole breakdown",
+    from: "  assertComputableOrder(order);",
+    to: "",
+  },
+  {
+    decision: "D-24",
+    what: "trust `kind`, so an unknown kind silently pays out as a fixed coupon",
+    from: '  return coupon.kind === "percent" || coupon.kind === "fixed";',
+    to: "  return true;",
+  },
+  {
+    decision: "D-21 (code type)",
+    what: "trust that every catalog row has a string code, so a malformed row throws",
+    from: "hasMatchableCode(c) && normalizeCode(c.code) === code",
+    to: "normalizeCode(c.code) === code",
   },
   {
     decision: "D-21",

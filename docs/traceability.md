@@ -1,12 +1,12 @@
 # Простежуваність: spec → code → tests (Task C)
 
-**Специфікація:** `docs/spec/pricing-discounts.md` (D-1…D-21, AC-1…AC-28)
+**Специфікація:** `docs/spec/pricing-discounts.md` (D-1…D-24, AC-1…AC-31)
 **Реалізація:** `app/src/discounts.ts`
 **Тести:** `app/src/discounts.test.ts`
 **Мутаційна перевірка:** `app/scripts/mutation-check.mjs`
 
-Перевірено: `cd app && npm test` — 37 зелених (8 засіяних + 29 за критеріями),
-`npm run typecheck` — без помилок, `npm run mutation-check` — 9 із 9 мутацій
+Перевірено: `cd app && npm test` — 40 зелених (8 засіяних + 32 за критеріями),
+`npm run typecheck` — без помилок, `npm run mutation-check` — 14 із 14 мутацій
 спіймано.
 
 ## Таблиця
@@ -36,16 +36,21 @@
 | AC-21 | Дедуплікація по побачених, не по застосованих (D-12 × D-19) | `discounts.ts:priceOrder` → `seen.add(code)` перед рештою перевірок | `AC-21: a repeat of an already-rejected code reports duplicate, not the first reason` | ✅ |
 | AC-22 | Порядок введення змінює підсумок (D-14) | `discounts.ts:priceOrder` → `for (const rawCode of order.coupons)` без сортування | `AC-22: entry order changes the total — coupons are never reordered` | ✅ |
 | AC-23 | Крайні пробіли й регістр ігноруються, внутрішні — ні (D-11) | `discounts.ts:normalizeCode` | `AC-23: edge whitespace and case are ignored, inner whitespace is not` | ✅ |
-| AC-24 | Непарсабельна дата — `invalid`, не вічний купон (D-20) | `discounts.ts:parseUnambiguousInstant` | `AC-24: an unparseable expiry is invalid, not eternal` | ✅ |
+| AC-24 | Непарсабельна й неіснуюча дата — `invalid`, не вічний купон (D-20) | `discounts.ts:parseUnambiguousInstant`, `isRealCalendarDate` | `AC-24: an unparseable expiry is invalid, not eternal` | ✅ |
 | AC-25 | Дата+час без зсуву неоднозначна (D-20) | `discounts.ts:DATE_ONLY`, `DATE_TIME_WITH_OFFSET` | `AC-25: a date-time without an offset is invalid; with one, or date-only, it is not` | ✅ |
 | AC-26 | `NaN` не отруює жодного поля (D-16) | `discounts.ts:isValidValue` → `Number.isInteger` | `AC-26: a NaN value is invalid and poisons no field` | ✅ |
-| AC-27 | Двобічна нормалізація + колізія в каталозі (D-21) | `discounts.ts:priceOrder` → крок (в), `catalog.filter(normalizeCode)` | `AC-27: catalog codes are normalised too; a collision is invalid` | ✅ |
+| AC-27 | Двобічна нормалізація, колізія в каталозі, непридатний `code` (D-21) | `discounts.ts:priceOrder` → крок (в), `catalog.filter(hasMatchableCode && normalizeCode)` | `AC-27: catalog codes are normalised too; a collision is invalid` | ✅ |
 | AC-28 | Зіпсований поріг невалідний, відсутній — ні (D-20) | `discounts.ts:isValidMinSubtotal` | `AC-28: a corrupt minimum threshold is invalid; an absent one is not` | ✅ |
+| AC-29 | Непридатний `now` — `invalid`, не вічний купон; пріоритет причин збережено (D-23) | `discounts.ts:priceOrder` → `nowIsUsable`, крок (д) | `AC-29: an unusable `now` rejects coupons rather than making them eternal` | ✅ |
+| AC-30 | Невідомий `kind` — `invalid`, а не мовчазний `fixed` (D-24) | `discounts.ts:isSupportedKind`, крок (г) | `AC-30: an unsupported kind is invalid, not silently treated as fixed` | ✅ |
+| AC-31 | Незліченне замовлення — `TypeError`, а не отруєна розбивка (D-22) | `discounts.ts:assertComputableOrder`, крок 0 | `AC-31: a corrupt order throws rather than returning a poisoned breakdown` | ✅ |
 
 **Інваріанти контракту** (§5 специфікації) перевіряються не окремим рядком, а
-хелпером `expectInvariants` на результаті **кожного** з 28 критеріїв: інваріант
-за визначенням має триматися скрізь, тож перевірка в одній точці перевіряла б
-майже нічого.
+хелпером `expectInvariants` на результаті **кожного** критерію, що повертає
+розбивку: інваріант за визначенням має триматися скрізь, тож перевірка в одній
+точці перевіряла б майже нічого. Виняток один — **AC-31**: там розбивки немає
+взагалі, бо саме її відсутність і є перевірюваною поведінкою (D-22). Обчислювані
+замовлення в межах того самого критерію проходять `expectInvariants` як звичайно.
 
 ## Зворотна перевірка
 
@@ -65,17 +70,31 @@
 
 Решта коду мапиться на критерії один в один. Зайвої «ініціативи» (кешування,
 логування, підбору найвигіднішого купона, сортування, знижки на доставку)
-немає — усе, що є, названо в D-1…D-21.
+немає — усе, що є, названо в D-1…D-24.
+
+→ **Пізніші доповнення.** Чотири перевірки додано вже після першого проходу, і
+кожна пройшла той самий цикл «рішення → критерій → код → тест → мутація», а не
+потрапила в код тихо: **D-22** (незліченне замовлення, AC-31), **D-23**
+(непридатний `now`, AC-29), **D-24** (невідомий `kind`, AC-30) і розширення
+**D-21** на не-рядковий `code` (у межах AC-27). Спільна риса всіх чотирьох —
+поле, яке `types.ts` описує типом, але каталог, замовлення чи виклик можуть
+порушити: тип був прийнятий за гарантію там, де її немає.
+
+D-22 при цьому єдина, що не вкладається у схему «зіпсовані дані → причина
+відхилення»: зіпсована позиція не лишає осмисленої відповіді, тож вона й стала
+єдиним винятком у всій специфікації. Це звузило обіцянку §5 з «завжди повертає
+`PriceBreakdown`» до «для будь-якого обчислюваного `Order`» — зміна контракту,
+зафіксована в самому §5, а не прихована в коді.
 
 ### Чи є AC без тесту?
 
-**Немає.** 28 з 28 мають тест, названий за своїм ID. Перевірено збігом імен:
+**Немає.** 31 з 31 мають тест, названий за своїм ID. Перевірено збігом імен:
 кожен `it(...)` у `discounts.test.ts` починається з `AC-N:`, і множина цих N
-дорівнює 1…28.
+дорівнює 1…31.
 
 ### Чи є тест, який не мапиться на жоден AC?
 
-**Один**, навмисно: `AC-1..28: the calculation is pure — inputs are not mutated,
+**Один**, навмисно: `AC-1..31: the calculation is pure — inputs are not mutated,
 no clock is read`. Він перевіряє не окремий критерій, а два інваріанти з §5
 контракту (чистота функції й детермінізм), які стосуються всіх критеріїв
 одразу. Названий діапазоном, щоб у виводі vitest було видно, що це не сирота,
@@ -96,7 +115,7 @@ no clock is read`. Він перевіряє не окремий критері�
 `percent`, а той відсікався пізнішою перевіркою діапазону — тобто тест проходив
 із хибної причини, хоча саме `NaN` був приводом для D-16. Обидва тести
 підсилено в межах їхніх критеріїв; код не змінювався — він був правильний
-із самого початку. Зараз ловляться всі 9 мутацій.
+із самого початку. Зараз ловляться всі 13 мутацій.
 
 Скрипт закомічено навмисно, а не лишено разовим прогоном: він і є той артефакт,
 який відрізняє «тести зелені» від «поведінку перевірено». Кожна мутація — це
