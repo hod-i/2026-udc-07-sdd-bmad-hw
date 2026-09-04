@@ -595,6 +595,32 @@ describe("priceOrder", () => {
     expect(price(order({ items: [item({ unitPriceKopecks: 1_000_000_000_00 })] })).subtotalKopecks)
       .toBe(1_000_000_000_00);
 
+    // The category base multiplies two independent kopeck amounts, so the
+    // subtotal bound does not cover it: `categoryItems × base` reaches ~10^27
+    // here. In doubles the product rounds before the divide and the base lands
+    // a kopeck out; a 100% coupon carries that error straight into the money.
+    const freshK = 4_546_506_044_070;
+    const stdK = 54_718_544_200_850 - freshK;
+    const bigCategoryOrder = order({
+      items: [
+        item({ unitPriceKopecks: freshK, category: "fresh" }),
+        item({ unitPriceKopecks: stdK, category: "standard" }),
+      ],
+      customerTier: "gold",
+      coupons: ["FRESH100"],
+    });
+    const bigResult = price(bigCategoryOrder, [
+      coupon({ code: "FRESH100", value: 100, category: "fresh" }),
+    ]);
+
+    // Exact expectation, computed independently in BigInt.
+    const subtotalB = BigInt(freshK + stdK);
+    const tierB = (subtotalB * 10n) / 100n;
+    const baseB = subtotalB - tierB;
+    const exactCouponBase = (BigInt(freshK) * baseB) / subtotalB;
+    expect(bigResult.tierDiscountKopecks).toBe(Number(tierB));
+    expect(bigResult.couponDiscountKopecks).toBe(Number((exactCouponBase * 100n) / 100n));
+
     // Right at the bound the arithmetic must still be exact, shipping included.
     const maxSubtotal = Math.floor(Number.MAX_SAFE_INTEGER / 100);
     const atBound = price(order({ items: [item({ unitPriceKopecks: maxSubtotal })], customerTier: "gold" }));

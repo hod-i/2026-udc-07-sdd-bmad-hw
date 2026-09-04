@@ -1,4 +1,4 @@
-# Простежуваність: spec → code → tests (Task C)
+﻿# Простежуваність: spec → code → tests (Task C)
 
 **Специфікація:** `docs/spec/pricing-discounts.md` (D-1…D-24, AC-1…AC-31)
 **Реалізація:** `app/src/discounts.ts`
@@ -6,7 +6,7 @@
 **Мутаційна перевірка:** `app/scripts/mutation-check.mjs`
 
 Перевірено: `cd app && npm test` — 40 зелених (8 засіяних + 32 за критеріями),
-`npm run typecheck` — без помилок, `npm run mutation-check` — 17 із 17 мутацій
+`npm run typecheck` — без помилок, `npm run mutation-check` — 18 із 18 мутацій
 спіймано.
 
 ## Таблиця
@@ -27,7 +27,7 @@
 | AC-12 | `percent` > 100 невалідний (D-16) | `discounts.ts:isValidValue` | `AC-12: a percent coupon above 100 is invalid` | ✅ |
 | AC-13 | Silver 5%, none 0 (D-15) | `discounts.ts:priceOrder` → крок 2, `tierPercent` | `AC-13: silver discounts 5%, none discounts 0` | ✅ |
 | AC-14 | Цифрове замовлення: доставка 0, знижка діє (D-2) | `discounts.ts:priceOrder` → крок 5, `shippingKopecks` | `AC-14: an all-digital order ships free and still discounts` | ✅ |
-| AC-15 | Пропорційне зменшення бази категорії (D-5) | `discounts.ts:priceOrder` → крок (ж), `categoryItems * base / subtotal` | `AC-15: the category base shrinks proportionally with the tier discount` | ✅ |
+| AC-15 | Пропорційне зменшення бази категорії, точне відношення без переповнення (D-5) | `discounts.ts:priceOrder` → крок (ж), `BigInt(categoryItems) * BigInt(base) / BigInt(subtotal)` | `AC-15: the category base shrinks proportionally with the tier discount` | ✅ |
 | AC-16 | `fixed` по категорії обрізається до бази D-5 (D-13) | `discounts.ts:priceOrder` → крок (з), `Math.min(coupon.value, couponBase)` | `AC-16: a fixed category coupon clamps to the proportional category base` | ✅ |
 | AC-17 | Рівень діє на всі категорії (D-15) | `discounts.ts:priceOrder` → крок 2 (без фільтра за категорією) | `AC-17: the tier discount covers every category without exception` | ✅ |
 | AC-18 | Відʼємний `value` невалідний (D-16) | `discounts.ts:isValidValue` → `coupon.value < 0` | `AC-18: a negative percent value is invalid` | ✅ |
@@ -115,7 +115,7 @@ no clock is read`. Він перевіряє не окремий критері�
 `percent`, а той відсікався пізнішою перевіркою діапазону — тобто тест проходив
 із хибної причини, хоча саме `NaN` був приводом для D-16. Обидва тести
 підсилено в межах їхніх критеріїв; код не змінювався — він був правильний
-із самого початку. Зараз ловляться всі 17 мутацій.
+із самого початку. Зараз ловляться всі 18 мутацій.
 
 Скрипт закомічено навмисно, а не лишено разовим прогоном: він і є той артефакт,
 який відрізняє «тести зелені» від «поведінку перевірено». Кожна мутація — це

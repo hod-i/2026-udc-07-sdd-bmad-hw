@@ -46,8 +46,8 @@ const MUTATIONS = [
   {
     decision: "D-5",
     what: "use the full category total instead of the proportionally reduced base",
-    from: "couponBase = Math.floor((categoryItems * base) / subtotal);",
-    to: "couponBase = categoryItems;",
+    from: "      couponBase = Number((BigInt(categoryItems) * BigInt(base)) / BigInt(subtotal));",
+    to: "      couponBase = categoryItems;",
   },
   {
     decision: "D-6",
@@ -108,6 +108,12 @@ const MUTATIONS = [
     what: "bound money by isInteger, which accepts MAX_VALUE and overflows to Infinity",
     from: "      if (!Number.isSafeInteger(value) || value < 0) {",
     to: "      if (!Number.isInteger(value) || value < 0) {",
+  },
+  {
+    decision: "D-5 (exact ratio)",
+    what: "compute the category base in doubles, rounding the product before the divide",
+    from: "      couponBase = Number((BigInt(categoryItems) * BigInt(base)) / BigInt(subtotal));",
+    to: "      couponBase = Math.floor((categoryItems * base) / subtotal);",
   },
   {
     decision: "D-22 (downstream headroom)",

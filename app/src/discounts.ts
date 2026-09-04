@@ -335,7 +335,17 @@ export function priceOrder(order: Order, catalog: Coupon[], now: Date): PriceBre
     } else if (subtotal === 0) {
       couponBase = 0;
     } else {
-      couponBase = Math.floor((categoryItems * base) / subtotal);
+      // Computed in BigInt: `categoryItems × base` is a product of two kopeck
+      // amounts, so it can reach ~10^27 even though each factor is well inside
+      // the safe range — the subtotal bound covers `subtotal × percent`, but
+      // nothing bounds the product of two independent money values. Rounded to
+      // double before the divide, the result lands a kopeck off in either
+      // direction, and a 100% coupon carries that straight into the discount.
+      //
+      // This is also what D-5 asks for literally: the ratio is exact and the
+      // only rounding is the outer floor, which BigInt division gives for free
+      // (both operands are non-negative, so truncation is floor).
+      couponBase = Number((BigInt(categoryItems) * BigInt(base)) / BigInt(subtotal));
     }
 
     // (Р·) Discount off that base вЂ” then (Рё) clamped again to the running base.
